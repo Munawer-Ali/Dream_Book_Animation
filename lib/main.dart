@@ -1,10 +1,16 @@
+import 'dart:ui';
+
+import 'package:dream_book_animation/book_page_generator.dart';
 import 'package:dream_book_animation/pageCurl.dart';
+import 'package:dream_book_animation/shaders.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter_shaders/flutter_shaders.dart';
 void main() async{
+  WidgetsFlutterBinding.ensureInitialized();
     // final ui.FragmentProgram program =
     //   await ui.FragmentProgram.fromAsset('shaders/inkwell.frag');
   runApp( MyApp());
@@ -19,7 +25,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Flutter Demo',
-       home: const HomeScreen(),
+       home:  HomeScreen(),
     );
   }
 }
@@ -41,7 +47,7 @@ class HomeScreen extends StatelessWidget {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => MyHomePage(title: 'Flutter Demo Home Page'),
+                builder: (context) => MyHomePage(title: "",),
               ),
             );
           },
@@ -62,15 +68,6 @@ class HomeScreen extends StatelessWidget {
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
   final String title;
 
   @override
@@ -90,13 +87,28 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   late Animation<Offset> _swipeDownAnimation;
   late AnimationController _bottomSlideController;
   late Animation<double> _bottomSlideAnim;
+   late AnimationController _swipeController;
+  late Animation<double> _swipeAnimation;
+  
+  ui.FragmentShader? _shader;
+  ui.Image? _pageImage;
+  ui.Image? _pageImage2;
+  final GlobalKey _repaintKey = GlobalKey();
+  final GlobalKey _repaintKey2 = GlobalKey();
+  
+  double _swipeProgress = 0.0;
+  double _swipeDownProgress = 1.4;
+  bool _isAnimating = false;
 
+ 
   @override
   void initState() {
     super.initState();
+
+
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 700),
     );
 
     _firstPageAnim = Tween<double>(begin: 0, end: 3).animate(
@@ -113,7 +125,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
     _bottomSlideController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 250),
     );
 
     _bottomSlideAnim = Tween<double>(begin: 0, end: 1).animate(
@@ -125,11 +137,11 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
     _swipeDownAnimation = Tween<Offset>(
       begin: Offset(0, 0),
-      end: Offset(0, 0.3),
+      end: Offset(0, 2),
     ).animate(
       CurvedAnimation(
         parent: _swipeUpController,
-        curve: Interval(0.0, 0.5, curve: Curves.easeInOut),
+        curve: Curves.easeInOut,
       ),
     );
 
@@ -140,7 +152,43 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       parent: _swipeUpController,
       curve: Curves.easeInOut,
     ));
+
+     _swipeController = AnimationController(
+      duration: const Duration(milliseconds: 5000),
+      vsync: this,
+    );
     
+    _swipeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _swipeController,
+      curve: Curves.easeOut,
+    ));
+    
+    _swipeAnimation.addListener(() {
+      setState(() {
+        // print("swipeAnimation.value ${_swipeAnimation.value}");
+        // _swipeProgress = _swipeAnimation.value;
+        _updateSwipeProgress(_swipeAnimation.value * 2);
+      });
+    });
+    
+    _swipeAnimation.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _isAnimating = false;
+      } else if (status == AnimationStatus.dismissed) {
+        _isAnimating = false;
+      }
+    });
+    
+    _loadShader();
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(Duration(milliseconds: 2000), () async { 
+        await _capturePageImage();
+      });
+    });
   }
 
   @override
@@ -148,15 +196,17 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     _controller.dispose();
     _swipeUpController.dispose();
     _bottomSlideController.dispose();
+        _swipeController.dispose();
+    // _pageImage?.dispose();
     super.dispose();
   }
+
 
   Future<void> _onBookTap() async {
     if (_controller.status == AnimationStatus.completed) {
       _controller.reverse();
     } else {
      
-    _swipeUpController.forward();
      await _controller.forward();
 
       print('Animation completed');
@@ -181,51 +231,249 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
      });
      
    
-     await _controller.forward();
+    // await Future.delayed(Duration(milliseconds: 2000), () async {
+    // });
+     await  _swipeController.forward();
+    // _swipeUpController.forward();
+    //  await _controller.forward();
+  
+    //   setState(() {
+    //   _fullScreen = true;
+    //  });
 
-      setState(() {
-      _fullScreen = true;
-     });
 
 
+    //  //reverse
+    //  Future.delayed(Duration(milliseconds: 300), () async {
+    //      await  Future.delayed(Duration(milliseconds: 300), () async {
+    //  await _bottomSlideController.forward();
+    //  });
 
-     //reverse
-     Future.delayed(Duration(milliseconds: 1000), () async {
-         await  Future.delayed(Duration(milliseconds: 300), () async {
-     await _bottomSlideController.forward();
-     });
-
-      _bottomSlideController.reverse();
-    setState(() {
-        _fullScreen = false;
-      });
-       await _controller.reverse();
+    //   _bottomSlideController.reverse();
+    // setState(() {
+    //     _fullScreen = false;
+    //   });
+    //    await _controller.reverse();
        
-     setState(() {
-      readMode = false;
-     });
+    //  setState(() {
+    //   readMode = false;
+    //  });
 
-      // _controller.reset();
+    //   // _controller.reset();
 
-        _firstPageAnim = Tween<double>(begin: 3, end: 0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.0, 0.5, curve: Curves.easeInOut),
-      ),
-    );
+    //     _firstPageAnim = Tween<double>(begin: 3, end: 0).animate(
+    //   CurvedAnimation(
+    //     parent: _controller,
+    //     curve: const Interval(0.0, 0.5, curve: Curves.easeInOut),
+    //   ),
+    // );
+    //      setState(() {
+    //      _showButtons = false; 
+    //     });
 
-
-         setState(() {
-         _showButtons = false; 
-        });
-
-
-    _swipeUpController.reverse();
-      _controller.forward();
+    // _swipeUpController.reverse();
+    //   _controller.forward();
 
   
-     });
+    //  });
     }
+  }
+
+  
+  Future<void> _loadShader() async {
+    try {
+      final program = await FragmentProgram.fromAsset('shaders/inkwell.frag');
+      setState(() {
+        _shader = program.fragmentShader();
+      });
+    } catch (e) {
+      print('Error loading shader: $e');
+    }
+  }
+
+  Future<void> _capturePageImage() async {
+  try {
+    // Wait for the next frame to ensure painting is complete
+    await Future.delayed(Duration.zero);
+    
+    // Force a rebuild and wait for layout
+    if (mounted) setState(() {});
+    await Future.delayed(Duration(milliseconds: 50));
+    
+    final boundary = _repaintKey.currentContext?.findRenderObject() 
+        as RenderRepaintBoundary?;
+
+    final boundary2 = _repaintKey2.currentContext?.findRenderObject() 
+        as RenderRepaintBoundary?;
+    
+    if (boundary == null || !boundary.attached || boundary.debugNeedsPaint || boundary2 == null || !boundary2.attached || boundary2.debugNeedsPaint) {
+      print('Boundary not ready for capture');
+      _scheduleImageCapture(); // Retry if not ready
+      return;
+    }
+    
+    final image = await boundary.toImage(
+      pixelRatio: MediaQuery.of(context).devicePixelRatio,
+    );
+
+    final image2 = await boundary2.toImage(
+      pixelRatio: MediaQuery.of(context).devicePixelRatio,
+    );
+    print("image2 ${image2}");
+    
+    if (mounted) {
+      setState(() => _pageImage = image);
+      setState(() => _pageImage2 = image2);
+    }
+  } catch (e) {
+    print('Capture error: $e');
+    _scheduleImageCapture(); // Retry on failure
+  }
+}
+
+void _scheduleImageCapture() {
+  if (mounted) {
+    Future.delayed(const Duration(milliseconds: 100), _capturePageImage);
+  }
+}
+
+
+  void _updateSwipeProgress(double value) {
+    print("value $value");
+    final screenWidth = MediaQuery.of(context).size.width;
+    var progress = value.clamp(0.0, 2.0);
+
+    if (progress < 2) {
+      _swipeProgress = progress;
+    }
+    if (progress > 1.16) {
+      _swipeDownProgress = _swipeDownProgress - (((progress - 1.16)) / 20);
+    }
+    // if(value == 2){
+    //   _swipeDownProgress = 0;
+    //   _swipeProgress = 0;
+    // }
+    setState(() {});
+    if (_shader == null) {
+      print("shader is null");
+    }
+    if (_pageImage == null || _pageImage2 == null) {
+      print("pageImage is null");
+    }
+  }
+
+  final List<String> dates = [
+    'Wednesday, 28 May 2025',
+    'Thursday, 29 May 2025',
+    'Friday, 30 May 2025',
+    'Saturday, 31 May 2025',
+    'Sunday, 1 June 2025',
+    'Monday, 2 June 2025',
+    'Tuesday, 3 June 2025',
+    'Wednesday, 4 June 2025',
+    'Thursday, 5 June 2025',
+    'Friday, 6 June 2025',
+  ];
+
+  final List<String> notes = [
+    'Released yume in the app store, got 1 million downloads after a week. Then I woke up...',
+    'Dreamed of flying over a city of lights. It felt so real!',
+    'Met an old friend in a place I have never seen before.',
+    'Was running a marathon on clouds. My feet never touched the ground.',
+    'Had a conversation with a talking cat about philosophy.',
+    'Explored a library with endless bookshelves.',
+    'Found a secret garden behind a mirror.',
+    'Attended a concert where everyone played invisible instruments.',
+    'Walked through a city where it rained colors.',
+    'Wrote a letter to my future self and received a reply instantly.',
+  ];
+
+
+Widget _buildBookPage(int index,bool top) {
+    return AnimatedContainer(
+      padding: EdgeInsets.only(left: _fullScreen ? 30 : 0),
+      duration: Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.only(topRight: Radius.circular(16),bottomRight: Radius.circular(16)) ,
+        color:  Color(0xffBBB8BB),
+      ),
+      child: Transform.flip(
+        flipY: true,
+        child: Transform.rotate(
+          angle: pi * 0.5,
+          child: Stack(
+            children: [
+              // Notebook lines
+              AnimatedOpacity(
+                   opacity: _fullScreen ? 0.0 : 1.0,
+                   duration: Duration(milliseconds: 500),
+                    child: Stack(
+                      alignment: Alignment.center,
+                         children: [
+         ...List.generate(6, (i) {
+                double top = (60 + i * 18) + 60;
+                return Positioned(
+                  left: 0,
+                  right: 0,
+                  top: top,
+                  child: Container(
+                    height: 1,
+                    color: Color.fromARGB(255, 153, 148, 149),
+                  ),
+                );
+              }),
+    ]
+  )),
+             
+              // Page number
+            if(top == true)
+              Positioned(
+                top: 16 + 50,
+                right: 0,
+                child: Text(
+                  'Page ${index + 1}',
+                  style: TextStyle(
+                    color: Color.fromARGB(255, 78, 77, 79),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              // Date
+            if(top == true)
+              Positioned(
+                top: 18+ 50,
+                left: 0,
+                child: Text(
+                  dates[index],
+                  style: TextStyle(
+                    color: Color(0xff5B595C),
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              // Note
+            if(top == true)
+              Positioned(
+                top: 40 + 60,
+                left: 5,
+                right: 20,
+                child: Text(
+                  notes[index],
+                  style: TextStyle(
+                    color: Colors.grey[800],
+                    fontSize: 15,
+                    fontWeight: FontWeight.w400,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -233,221 +481,313 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     Size size = MediaQuery.of(context).size;
     return Scaffold(
       backgroundColor: const Color(0xFF232025),
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-
-
-
-      
-            SlideTransition(
-              position: _swipeUpAnimation,
-              child: Column(
-                children: [
-                  SizedBox(height: 24),
-                  Center(
-                    child: Text(
-                      'Wednesday, 28 May',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w400,
+      body:
+       SafeArea(
+        child:  Column(
+              children: [         
+                SlideTransition(
+                  position: _swipeUpAnimation,
+                  child: Column(
+                    children: [
+                      SizedBox(height: 24),
+                      Center(
+                        child: Text(
+                          'Wednesday, 28 May',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Center(
-                    child: Text(
-                      'Here, your dreams\ncome to life',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        height: 1.2,
+                      const SizedBox(height: 18),
+                      Center(
+                        child: Text(
+                          'Here, your dreams\ncome to life',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            height: 1.2,
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 40),
+                    ],
                   ),
-                  const SizedBox(height: 40),
-                ],
-              ),
-            ),
-          
+                ),
               
-                 GestureDetector(
-                   onTap: _onBookTap,
-                   child: Container(
-                    child: AnimatedBuilder(
-                      animation: Listenable.merge([_firstPageAnim, _bottomSlideAnim]),
-                      builder: (context, child) {
-                        print(_firstPageAnim.value);
-                                final isFlipped = _firstPageAnim.value > pi / 2;
-
-                                final bookImage = Transform(
-                                  alignment: Alignment.centerLeft,
-                                  transform: Matrix4.identity()
-                                    ..setEntry(3, 2, 0.001)
-                                    ..rotateY(_firstPageAnim.value * 0.9),
-                                  child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 215,duration: Duration(milliseconds: 300),child: Image.asset('assets/book.png', color:  isFlipped ? Color(0xff3E3C3F) : null,fit: BoxFit.fill,)),
-                                );
-
-                                final bookBackImage = Transform(
-                                  alignment: Alignment.centerLeft,
-                                  transform: Matrix4.identity()
-                                    ..setEntry(3, 2, 0.001)
-                                    ..rotateY(readMode ? 0.3 - (_firstPageAnim.value * 0.1) : _firstPageAnim.value * 0.1),
-                                  child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 215,duration: Duration(milliseconds: 300),child: Image.asset('assets/book.png', color:Color(0xff3E3C3F),fit: BoxFit.fill,)),
-                                );
-
-                                 final lastPageImage = Transform(
-                                  alignment: Alignment.centerLeft,
-                                  transform: Matrix4.identity()
-                                    ..setEntry(3, 2, 0.001)
-                                    ..rotateY(readMode ?  0 :_firstPageAnim.value * 0.1),
-                                  child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 210,duration: Duration(milliseconds: 300),child: Image.asset('assets/book.png', color:Color(0xffBFBCBE),fit: BoxFit.fill,)),
-                                );
-
-                                final FirstPageImage = Transform(
-                                  alignment: Alignment.centerLeft,
-                                  transform: Matrix4.identity()
-                                    ..setEntry(3, 2, 0.001)
-                                    ..rotateY(_firstPageAnim.value *  0.9),
-                                  child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 210,duration: Duration(milliseconds: 300),child: Image.asset('assets/book.png', color: Color(0xffBFBCBE),fit: BoxFit.fill,)),
-                                );
-
-                                final SecondPageImage = PageCurlWidget(
-                                  child: Transform(
-                                    alignment: Alignment.centerLeft,
-                                    transform: Matrix4.identity()
+                     GestureDetector(
+                       onTap: _onBookTap,
+                       child: Container(
+                        child: AnimatedBuilder(
+                          animation: Listenable.merge([_firstPageAnim, _bottomSlideAnim]),
+                          builder: (context, child) {
+                                    final isFlipped = _firstPageAnim.value > pi / 2;
+                                 
+                                    final bookImage = Transform(
+                                      alignment: Alignment.centerLeft,
+                                      transform: Matrix4.identity()
                                         ..setEntry(3, 2, 0.001)
-                                        ..rotateY(readMode ? 0 :_firstPageAnim.value * 0.87),
-                                    child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 210,duration: Duration(milliseconds: 300),child: Image.asset('assets/book.png', color: Colors.red,fit: BoxFit.fill,)),
-                                  ),
-                                );
-
-                                final centerShadow = Positioned(
-                                  left: 0,
-                                  child: Container(
-                                    width: 8,
-                                    height: 310,
-                                    decoration: BoxDecoration(
-                                      color: Color.fromARGB(255, 169, 164, 166),
+                                        ..rotateY(_firstPageAnim.value * 0.9),
+                                      child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 215,duration: Duration(milliseconds: 300),child: Image.asset('assets/book.png', color:  isFlipped ? Color(0xff3E3C3F) : null,fit: BoxFit.fill,)),
+                                    );
+                                 
+                                    final bookBackImage = Transform(
+                                      alignment: Alignment.centerLeft,
+                                      transform: Matrix4.identity()
+                                        ..setEntry(3, 2, 0.001)
+                                        ..rotateY(_firstPageAnim.value * 0.01),
+                                      child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 215,duration: Duration(milliseconds: 300),child: Image.asset('assets/book.png', color:Color(0xff3E3C3F),fit: BoxFit.fill,)),
+                                    );
+                                 
+                                     final lastPageImage = Transform(
+                                      alignment: Alignment.centerLeft,
+                                      transform: Matrix4.identity()
+                                        ..setEntry(3, 2, 0.001)
+                                        ..rotateY(_firstPageAnim.value * 0.01),
+                                      child: RepaintBoundary(key: _repaintKey,child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 210,duration: Duration(milliseconds: 300),child: _buildBookPage(1,false))),
+                                    );
+                                 
+                                    final FirstPageImage = Transform(
+                                      alignment: Alignment.centerLeft,
+                                      transform: Matrix4.identity()
+                                        ..setEntry(3, 2, 0.001)
+                                        ..rotateY(_firstPageAnim.value *  0.9),
+                                      child: RepaintBoundary(key:_repaintKey2,child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 210,duration: Duration(milliseconds: 300),child: _buildBookPage(_swipeProgress > 0.8 ? 3: 2,true))),
+                                    );
+                                 
+                                    final SecondPageImage = Transform(
+                                      alignment: Alignment.centerLeft,
+                                      transform: Matrix4.identity()
+                                          ..setEntry(3, 2, 0.001)
+                                          ..rotateY(_firstPageAnim.value * 0.87),
+                                      child: AnimatedContainer(height: _fullScreen ? size.width : 310,width: _fullScreen ? size.height * 0.5 : 210,duration: Duration(milliseconds: 300),child: _buildBookPage(3,false)),
+                                    );
+                     
                                     
+                                  final pageSwipeShader = _shader == null || _pageImage2 == null || _swipeProgress ==  0.0 ? SizedBox() : Transform(
+                                     alignment: Alignment.centerLeft,
+                                      transform: Matrix4.identity()
+                                          ..setEntry(3, 2, 0.001)
+                                          ..rotateY(_firstPageAnim.value *  0.9),
+                                    child: SizedBox(
+                                        height: 310,
+                                  width: 210,
+                                      child: CustomPaint(
+                                          painter: PageSwipeShaderPainter(
+                                          shader: _shader!,
+                                          swipeProgress: _swipeProgress,
+                                          pageImage: _pageImage2!,
+                                          containerSize: MediaQuery.of(context).size,
+                                          // cornerRadius: 12.0,
+                                          ),
+                                        ),
+                                    ),
+                                  );
+                     
+                                     final pageSwipeDownShader = _shader == null || _pageImage == null ? SizedBox() : Transform(
+                                     alignment: Alignment.centerLeft,
+                                      transform: Matrix4.identity()
+                                          ..setEntry(3, 2, 0.001)
+                                           ..rotateY(readMode ? 0 :_firstPageAnim.value * 0.87),
+                                    child: SizedBox(
+                                        height: 310,
+                                  width: 215,
+                                      child: CustomPaint(
+                                          painter: PageSwipeShaderPainter(
+                                          shader: _shader!,
+                                          swipeProgress: _swipeDownProgress,
+                                          pageImage: _pageImage!,
+                                          containerSize: MediaQuery.of(context).size,
+                                          // cornerRadius: 12.0,
+                                          ),
+                                        ),
+                                    ),
+                                  );
+                     
+                                    final centerShadow = Positioned(
+                                      left: 0,
+                                      child: AnimatedOpacity(
+                                        opacity: _fullScreen ? 0.0 : 1.0,
+                                        duration: Duration(milliseconds: 300),
+                                        child: Container(
+                                          width: 8,
+                                          height: 310,
+                                          decoration: BoxDecoration(
+                                            color: Color.fromARGB(255, 169, 164, 166),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                    // final page3 = Transform(
+                                    //   alignment: Alignment.centerLeft,
+                                    //   transform: Matrix4.identity()
+                                    //     ..setEntry(3, 2, 0.001)
+                                    //      ..translate(_firstPageAnim.value * 8),
+                                    //   child: Image.asset('assets/book.png', color: Color(0xffBFBCBE),height: 340,),
+                                      
+                                    // );
+                       
+                            return Padding(
+                              padding: EdgeInsets.only(top: _firstPageAnim.value * 50 + (_bottomSlideAnim.value * 200)),
+                              child: Transform(
+                                alignment: Alignment.center,
+                                transform: Matrix4.identity()
+                                ..rotateZ(readMode ?1.65 * (3 / pi) :1.65 * (_firstPageAnim.value / pi)),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                       Stack(
+                                        alignment: Alignment.center,
+                                        children: isFlipped
+                     //,
+                                            // ? [bookBackImage,page3,bookImage, page1, page2,] // book image at the back
+                                            // : [bookBackImage,page3,page1, page2, bookImage,], // book image on top
+                                         ? [bookBackImage,lastPageImage,bookImage,
+                                      
+                                       SecondPageImage  ,FirstPageImage,
+                                            (_shader != null && _pageImage != null && _swipeProgress > 0.0) ?
+                                        pageSwipeShader : SizedBox(),
+                     
+                                            (_shader != null && _pageImage != null && _swipeProgress > 1.16) ?
+                                        pageSwipeDownShader : SizedBox()
+                                         ,centerShadow] // book image at the back
+                                            : [bookBackImage,lastPageImage,FirstPageImage,SecondPageImage,bookImage], // 
+                                      ),
+                                ],
+                              ),
+                                                  ),
+                            );}
+                        )
+                                       ),
+                     ),
+               
+                   Spacer(),
+                  SlideTransition(
+                    position: _swipeDownAnimation,
+                    child: Column(
+                      children: [
+                              Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                  child: Text(
+                    'Add a dream by simply recording a\nvoice message or typing it out',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 16,
+                    ),
+                  ),
+                                  ),
+                                
+                              
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () {},
+                                  icon: const Icon(Icons.mic, size: 28),
+                                  label: const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 16.0),
+                                    child: Text(
+                                      'Record',
+                                      style: TextStyle(fontSize: 20),
                                     ),
                                   ),
-                                );
-                                // final page3 = Transform(
-                                //   alignment: Alignment.centerLeft,
-                                //   transform: Matrix4.identity()
-                                //     ..setEntry(3, 2, 0.001)
-                                //      ..translate(_firstPageAnim.value * 8),
-                                //   child: Image.asset('assets/book.png', color: Color(0xffBFBCBE),height: 340,),
-                                  
-                                // );
-                   
-                        return Padding(
-                          padding: EdgeInsets.only(top: _firstPageAnim.value * 50 + (_bottomSlideAnim.value * 200)),
-                          child: Transform(
-                            alignment: Alignment.center,
-                            transform: Matrix4.identity()
-                            ..rotateZ(readMode ?1.65 * (3 / pi) :1.65 * (_firstPageAnim.value / pi)),
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                                   Stack(
-                                    alignment: Alignment.center,
-                                    children: isFlipped
-                                        // ? [bookBackImage,page3,bookImage, page1, page2,] // book image at the back
-                                        // : [bookBackImage,page3,page1, page2, bookImage,], // book image on top
-                                     ? [bookBackImage,lastPageImage,bookImage,FirstPageImage,SecondPageImage,centerShadow] // book image at the back
-                                        : [bookBackImage,lastPageImage,FirstPageImage,SecondPageImage,bookImage], // 
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF353238),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                    ),
+                                    elevation: 4,
                                   ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () {},
+                                  icon: const Icon(Icons.smart_toy, size: 28),
+                                  label: const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 16.0),
+                                    child: Text(
+                                      'Type',
+                                      style: TextStyle(fontSize: 20),
+                                    ),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF353238),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                    ),
+                                    elevation: 4,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                                              ),
-                        );}
-                    )
-                                   ),
-                 ),
-            const Spacer(),
-           
-       
-            if (_showButtons)
-              SlideTransition(
-                position: _swipeDownAnimation,
-                child: Column(
-                  children: [
-        Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32.0),
-              child: Text(
-                'Add a dream by simply recording a\nvoice message or typing it out',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          
-
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () {},
-                              icon: const Icon(Icons.mic, size: 28),
-                              label: const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 16.0),
-                                child: Text(
-                                  'Record',
-                                  style: TextStyle(fontSize: 20),
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF353238),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                                elevation: 4,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () {},
-                              icon: const Icon(Icons.smart_toy, size: 28),
-                              label: const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 16.0),
-                                child: Text(
-                                  'Type',
-                                  style: TextStyle(fontSize: 20),
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF353238),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                                elevation: 4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-           
-            ],
-          ),
+                  ),
+               
+                ],
         ),
+       )
     );
+  }
+
+  
+}
+
+class BlurShaderPainter extends CustomPainter {
+  final ui.FragmentShader shader;
+  final double animationValue;
+  final Offset pointerPosition;
+  final ui.Image? texture;
+
+  BlurShaderPainter(
+    this.shader, 
+    this.animationValue, {
+    this.pointerPosition = const Offset(0.5, 0.5),
+    this.texture,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint();
+
+    // Set uniforms in the exact order they are declared in the shader:
+    // uniform float u_progress;     // Index 0
+    // uniform vec2 u_pointer;       // Index 1, 2 (x, y)
+    // uniform sampler2D u_texture;  // Index 3 (texture)
+    // uniform vec2 u_resolution;    // Index 4, 5 (width, height)
+
+    shader.setFloat(0, animationValue);              // u_progress
+    shader.setFloat(1, pointerPosition.dx);          // u_pointer.x
+    shader.setFloat(2, pointerPosition.dy);          // u_pointer.y
+    
+    // Set the texture if available
+    if (texture != null) {
+      shader.setImageSampler(0, texture!);           // u_texture (sampler index 0)
+    }
+    
+    shader.setFloat(3, size.width);                  // u_resolution.x
+    shader.setFloat(4, size.height);                 // u_resolution.y
+
+    paint.shader = shader;
+    canvas.drawRect(Offset.zero & size, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant BlurShaderPainter oldDelegate) {
+    return oldDelegate.animationValue != animationValue ||
+           oldDelegate.pointerPosition != pointerPosition ||
+           oldDelegate.texture != texture;
   }
 }
