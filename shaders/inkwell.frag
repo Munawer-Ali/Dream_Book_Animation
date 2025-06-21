@@ -60,3 +60,4 @@ void main() {
             fragColor = texture(image, xy / resolution);
         }
     }
+}
