@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" style="width: 100%; height: 100%; overflow: hidden">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Plyr YouTube Player</title>
+
+    <!-- Plyr CSS & JS -->
+    <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+    <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
+
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100vh;
+        background: black;
+        overflow: hidden;
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+      }
+
+      :root {
+        --plyr-control-icon-size: 50px;
+        --plyr-range-track-height: 15px;
+        --plyr-range-thumb-height: 25px;
+        --plyr-control-spacing: 14px;
+        --plyr-control-padding: 10px;
+      }
+
+      .plyr_controls button.plyr_control[data-plyr="play"] svg {
+        width: 50px;
+        height: 50px;
+      }
+
+      .plyr__progress input[type="range"]::-webkit-slider-thumb {
+        height: 30px;
+        width: 30px;
+        background: white;
+      }
+
+      #player-container {
+        width: 100%;
+        height: 100vh;
+        position: relative;
+      }
+
+      .plyr__video-embed {
+        height: 100vh;
+      }
+
+      #plyr_watermark {
+        position: absolute;
+        top: 10%;
+        left: 10%;
+        color: white;
+        font-size: 24px;
+        font-weight: bold;
+        opacity: 0.5;
+        z-index: 9999;
+        pointer-events: none;
+        -webkit-text-stroke: 1px red;
+      }
+
+      /* Custom center play button */
+      #custom-play-button {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 80px;
+        color: white;
+        cursor: pointer;
+        z-index: 10000;
+        opacity: 0.85;
+        transition: opacity 0.3s;
+        user-select: none;
+      }
+
+      #custom-play-button:hover {
+        opacity: 1;
+      }
+
+      /* Hide bottom play button if needed */
+      .plyr__controls [data-plyr="play"] {
+        display: none !important;
+      }
+    </style>
+  </head>
+
+  <body oncontextmenu="return false;">
+ 
+<div class="plyr__video-embed" id="player">
+  <iframe src="https://www.youtube.com/embed/bTqVqk7FSmY?origin=https://plyr.io&amp;iv_load_policy=3&amp;modestbranding=1&amp;playsinline=1&amp;showinfo=0&amp;rel=0&amp;enablejsapi=1" allowfullscreen allowtransparency allow="autoplay"></iframe>
+</div>
+
+    <script>
+      const watermark = document.getElementById("plyr_watermark");
+
+      function moveWatermark() {
+        const parent = document.getElementById("player-container");
+        const maxTop = parent.offsetHeight - watermark.offsetHeight;
+        const maxLeft = parent.offsetWidth - watermark.offsetWidth;
+        watermark.style.top = Math.random() * maxTop + "px";
+        watermark.style.left = Math.random() * maxLeft + "px";
+      }
+
+      const player = new Plyr("#player", {
+        autoplay: false,
+        muted: true,
+        controls: ["progress", "current-time", "mute", "settings"],
+        settings: ["speed"],
+        clickToPlay: true,
+        youtube: {
+          noCookie: true,
+          rel: 0,
+        },
+      });
+
+      // Hide center play button when video starts
+      player.on("play", () => {
+        const btn = document.getElementById("custom-play-button");
+        if (btn) btn.style.display = "none";
+      });
+
+      // Pause from Flutter
+      function pauseVideoFromFlutter() {
+        if (player && player.pause) {
+          player.pause();
+        }
+      }
+
+      let playbackStats = {};
+      let lastUpdate = Date.now();
+      let intervalId = null;
+
+      function updatePlaybackStats() {
+        const now = Date.now();
+        const elapsed = (now - lastUpdate) / 1000;
+        lastUpdate = now;
+
+        const currentSpeed = player.speed;
+
+        if (!playbackStats[currentSpeed]) {
+          playbackStats[currentSpeed] = 0;
+        }
+
+        playbackStats[currentSpeed] += elapsed;
+
+        const totalPlayTime = Object.values(playbackStats).reduce(
+          (acc, val) => acc + val,
+          0
+        );
+
+        if (window.PlayerChannel && window.PlayerChannel.postMessage) {
+          PlayerChannel.postMessage(
+            JSON.stringify({
+              type: "speed_tracking",
+              speed: currentSpeed,
+              totalPlayTime: totalPlayTime,
+              timeSpent: playbackStats[currentSpeed],
+              timestamp: new Date().toISOString(),
+            })
+          );
+        }
+
+        console.log("Playback Stats:", JSON.stringify(playbackStats, null, 2));
+      }
+
+      function startTracking() {
+        if (intervalId) return; // Already tracking
+        lastUpdate = Date.now();
+        intervalId = setInterval(updatePlaybackStats, 3000);
+      }
+
+      function stopTracking() {
+        if (intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      }
+
+      // Event listeners for tracking
+      player.on("play", startTracking);
+      player.on("pause", stopTracking);
+      player.on("ended", stopTracking);
+      player.on("ratechange", () => {
+        updatePlaybackStats(); // Update old speed's time
+        lastUpdate = Date.now(); // Reset for new speed
+      });
+
+      // Move watermark every 5 seconds
+      setInterval(moveWatermark, 5000);
+    </script>
+     
+  </body>
+</html>
